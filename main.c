@@ -42,9 +42,10 @@ void RenderStats( SDL_Renderer *, TTF_Font *, int [], int , int );
 void filledCircleRGBA(SDL_Renderer * , int , int , int , int , int , int );
 
 void InitRandomBoard(int, int, int [][MAX_BOARD_POS], int);
+void GenerateShuffleBoard(int [MAX_BOARD_POS][MAX_BOARD_POS], int , int , int);
 void GetUserParams(char [], char [], int [MAX_COLORS], int *, int *, int *, int *);
 int ValidatePlay(int [MAX_BOARD_POS*MAX_BOARD_POS][2], int [MAX_BOARD_POS][MAX_BOARD_POS], int);
-void DestroyCircles(int [MAX_BOARD_POS][MAX_BOARD_POS], int [MAX_BOARD_POS][MAX_BOARD_POS], int , int , int , int);
+void DestroyCircles(int [MAX_BOARD_POS][MAX_BOARD_POS], int [MAX_BOARD_POS][MAX_BOARD_POS], int , int , int , int, int, int);
 int CheckSquares(int [MAX_BOARD_POS][MAX_BOARD_POS], int [MAX_BOARD_POS][MAX_BOARD_POS], int [MAX_BOARD_POS*MAX_BOARD_POS][2], int [MAX_COLORS], int, int, int, int);
 void UpdateStats(int [MAX_COLORS], int [MAX_COLORS], int * );
 void EndGame(SDL_Renderer * , TTF_Font *, TTF_Font *, int );
@@ -72,7 +73,7 @@ int main( void )
     TTF_Font *serifSmall = NULL;
     SDL_Surface *imgs[2];
     SDL_Event event;
-    int delay = 100;
+    int delay = 300;
     int quit = 0;
     int width = (TABLE_SIZE + LEFT_BAR_SIZE);
     int height = TABLE_SIZE;
@@ -122,6 +123,7 @@ int main( void )
 
     // initialize graphics
     InitEverything(width, height, &serif, imgs, &window, &renderer, &serifGrande, &serifSmall);
+    srand(1234);
 
     //initialize board table array for random colors
     InitRandomBoard(board_pos_x, board_pos_y, board, numColors);
@@ -236,7 +238,7 @@ int main( void )
                     if(isSquare) {
                         pointsMadePerColor[gamePlayColor]--;     //Being a square the first circle is equal to the last so only counted as one
                     }
-                    DestroyCircles(board, circlesToDestroy, board_pos_x, board_pos_y, gamePlayIndex, numColors);
+                    DestroyCircles(board, circlesToDestroy, board_pos_x, board_pos_y, gamePlayIndex, numColors, isSquare, gamePlayColor);
                 }
 
                 //Score values update
@@ -302,7 +304,7 @@ int main( void )
             RenderShuffleRect(renderer, serifGrande);
             SDL_RenderPresent(renderer);
             SDL_Delay( 1500 );
-            InitRandomBoard(board_pos_x, board_pos_y, board, numColors);
+            GenerateShuffleBoard(board, board_pos_x, board_pos_y, numColors);
         }
         //If player won or lost:
         if(gameState != 0) {
@@ -333,12 +335,41 @@ int main( void )
 */
 
 void InitRandomBoard(int _boardX, int _boardY, int _boardTable[][MAX_BOARD_POS], int _numColors) {
-    srand(time(NULL));
+    //srand(1234);
     for(int i=0; i < _boardX; i++) {
         for(int j=0; j < _boardY; j++) {
             _boardTable[i][j] = rand() % _numColors;
         }
     }
+}
+
+/**GenerateShuffleBoard: To generate a shuffled board with the current circles on the board, due to no more possible moves
+*\param _board The current board that hols the circle colors on each coordinate
+*\param _board_pos_x, _board_pos_y The user chosen size params for the xx and yy coordinates
+*\param _numColors User chosen param for the number of colors to use on the game
+*/
+void GenerateShuffleBoard(int _board[MAX_BOARD_POS][MAX_BOARD_POS], int _board_pos_x, int _board_pos_y, int _numColors) {
+    //Vector to hold the number of circles on the current board of each color
+    int numColorsOnBoard[5] = {0};
+    for(int i=0; i<_board_pos_x; i++) {
+        for(int j=0; j<_board_pos_y; j++) {
+            numColorsOnBoard[_board[i][j]]++;
+        }
+    }
+
+    for(int i=0; i<_board_pos_x; i++) {
+        for(int j=0; j<_board_pos_y; j++) {
+            while(1) { //While tmp has a possible value so that the indexed color can still be generated on the board (break if tmp can be used)
+                int tmp = (int) (rand() % (_numColors));
+                if(numColorsOnBoard[tmp] != 0) {
+                    _board[i][j] = tmp;
+                    numColorsOnBoard[tmp]--;
+                    break;
+                }
+            }
+        }
+    }
+
 }
 
 /**GetUserParams To get the initial params before starting the game
@@ -349,7 +380,6 @@ void InitRandomBoard(int _boardX, int _boardY, int _boardTable[][MAX_BOARD_POS],
 * \param _numColors The maximum number of colors to appear on the game
 * \param _maxPlays Maximum number of plays to make on each game before loosing
 */
-
 void GetUserParams(char _username[STRING_SIZE], char _tmp[STRING_SIZE], int _colorPoints[MAX_COLORS], int *_board_pos_x, int *_board_pos_y, int *_numColors, int *_maxPlays) {
     do {
     printf("Enter your username (No more than 8 letters): ");
@@ -364,13 +394,13 @@ void GetUserParams(char _username[STRING_SIZE], char _tmp[STRING_SIZE], int _col
         printf("\nEnter the VERTICAL game-table size(between 5 and 15): ");
         fgets(_tmp, STRING_SIZE, stdin);
         sscanf(_tmp, " %d",  _board_pos_y);
-    } while(* _board_pos_y<5 || * _board_pos_y >15 );
+    } while(* _board_pos_y<2 || * _board_pos_y >15 );
 
     do {
         printf("\nEnter the HORIZONTAL game-table size(between 5 and 15): ");
         fgets(_tmp, STRING_SIZE, stdin);
         sscanf(_tmp, " %d", _board_pos_x);
-    } while(*_board_pos_x<5 || *_board_pos_x >15);
+    } while(*_board_pos_x<2 || *_board_pos_x >15);
 
     do {
         printf("\nEnter the number of colors to appear on the game (1-5): ");
@@ -440,17 +470,17 @@ int ValidatePlay(int _gamePlay[MAX_BOARD_POS*MAX_BOARD_POS][2], int _board[MAX_B
  * \param _numCircles Number of circles selected by the player
  * \param _numColors Number of colors used in this game
 */
-
-void DestroyCircles(int _board[MAX_BOARD_POS][MAX_BOARD_POS], int _circlesToDestroy[MAX_BOARD_POS][MAX_BOARD_POS], int _sizeX, int _sizeY, int _numCircles, int _numColors) {
+void DestroyCircles(int _board[MAX_BOARD_POS][MAX_BOARD_POS], int _circlesToDestroy[MAX_BOARD_POS][MAX_BOARD_POS], int _sizeX, int _sizeY, int _numCircles, int _numColors, int _isSquare, int _color) {
     int i=0, j=0, d=0;
-    srand(time(NULL));
     for(i=0; i<_sizeX; i++) {
         for(j=0; j < _sizeY; j++) {
             if(_circlesToDestroy[i][j] == 1) {
                 for(d=0; d<j; d++) {
                     _board[i][j-d] = _board[i][j-d-1];
                 }
+                do {
                 _board[i][0] = (int) (rand() % (_numColors));
+                } while(_board[i][0] == _color && _isSquare);
             }
         }
     }
@@ -469,21 +499,25 @@ void DestroyCircles(int _board[MAX_BOARD_POS][MAX_BOARD_POS], int _circlesToDest
 */
 int CheckSquares(int _board[MAX_BOARD_POS][MAX_BOARD_POS], int _circlesToDestroy[MAX_BOARD_POS][MAX_BOARD_POS], int _gamePlay[MAX_BOARD_POS*MAX_BOARD_POS][2], int _pointsMadePerColor[MAX_COLORS], int _currentColor, int _numberOfCircles, int _board_pos_x, int _board_pos_y) {
     int minX=_board_pos_x, minY=_board_pos_y, maxX=0, maxY=0;
+    int isSquare = 0;
 
     //No caso de o jogador ter feito uma jogada em linha em que voltou para trás
     if(_gamePlay[0][0] == _gamePlay[_numberOfCircles-1][0] && _gamePlay[0][1] == _gamePlay[_numberOfCircles-1][1] && _gamePlay[1][0] == _gamePlay[_numberOfCircles-2][0] && _gamePlay[1][1] == _gamePlay[_numberOfCircles-2][1]) {
         printf("Foi uma linha!!!");
         return 0;
     }
+    if(_numberOfCircles > 1) {
+        for(int i=0; i < _numberOfCircles-1; i++) {
+            if(_gamePlay[_numberOfCircles-1][0] == _gamePlay[i][0] && _gamePlay[_numberOfCircles-1][1] == _gamePlay[i][1]) {
+                isSquare = 1;
+            }
+        }
+    }
 
     //For getting the vertices of the square(or rectangle)
     for(int i = 0; i < _board_pos_x; i++) {
         for(int j=0; j < _board_pos_y; j++) {
             if(_circlesToDestroy[i][j]==1) {
-                if(i<minX)
-                    minX = i;
-                if(i>maxX)
-                    maxX = i;
                 if(j<minY)
                     minY = j;
                 if(j>maxY)
@@ -492,15 +526,28 @@ int CheckSquares(int _board[MAX_BOARD_POS][MAX_BOARD_POS], int _circlesToDestroy
         }
     }
 
-    if((_gamePlay[0][0] == _gamePlay[_numberOfCircles-1][0] && _gamePlay[0][1] == _gamePlay[_numberOfCircles-1][1]) && _numberOfCircles>1) { //Se o primeiro e ultimo indices da jogada coincidirem(linha fechada)
-        for(int i=0; i < _board_pos_x; i++) {
-            for(int j=0; j < _board_pos_y; j++) {
-                if((i>minX && i<maxX && j > minY && j < maxY) || (_board[i][j] == _currentColor && _circlesToDestroy[i][j] != 1)) {
+    if(isSquare) { //Se o primeiro e ultimo indices da jogada coincidirem(linha fechada)
+        for(int j=0; j < _board_pos_y; j++) {
+            minX=_board_pos_x;
+            maxX=0;
+            //Para guardas os extremos da linha
+            for(int i=0; i < _board_pos_x; i++) {
+                if(_circlesToDestroy[i][j]==1) {
+                    if(i<minX)
+                        minX = i;
+                    if(i>maxX)
+                        maxX = i;
+                }
+            }
+
+            for(int i=0; i < _board_pos_x; i++) {
+                if((i>minX && i<maxX) || (_board[i][j] == _currentColor && _circlesToDestroy[i][j] != 1)) {
                     _circlesToDestroy[i][j] = 1;
                     _pointsMadePerColor[_board[i][j]]++;
                 }
             }
         }
+
         return 1;
     } else {
         return 0;
@@ -568,8 +615,6 @@ void RenderShuffleRect(SDL_Renderer * _renderer, TTF_Font *_font) {
 * \param _board_size_y size of the board on the yy axis
 * \return returns 1 if it needs to shuffle and 0 if not needed
 */
-
-
 int Shuffle(int _board[MAX_BOARD_POS][MAX_BOARD_POS], int _board_size_x, int _board_size_y) {
     for(int i=0; i < _board_size_x-1; i++) {
         for(int j=0; j < _board_size_y; j++) {
@@ -618,8 +663,12 @@ void WriteFile(FILE *_statistics, char _filePath[], char _username[], int _wins,
     fclose(_statistics);
 }
 
-/**RenderSelectedSquares
-*
+/**RenderSelectedSquares: Produces the drag effect by making the inner square(and already selected squares) of red color
+*\param _pt_x, _pt_y The current mouse position on the xx and yy axis
+*\param _gamePlay array with the current selected coordinates in sequence
+*\param _board_pos_x, _board_pos_y The user chosen params for the board size on xx an yy axis
+*\param _board_size_px size of the board
+*\param _numberOfCircles Number of circles already selected
 */
 
 void RenderSelectedSquares(SDL_Renderer * _renderer, int _pt_x, int _pt_y, int _gamePlay[][2], int _board_pos_x, int _board_pos_y, int _board_size_px[], int _numberOfCircles) {
@@ -645,7 +694,14 @@ void RenderSelectedSquares(SDL_Renderer * _renderer, int _pt_x, int _pt_y, int _
     }
 }
 
-
+/**PressedUKey: When user presses 'u' key to undo one play
+* \param _board The current board that holds the circles color for each coordinate
+* \param _currentPointsPerColor Total number of existence points for each color
+* \param _pointsMadePerColor  Number of circles destroyed per color
+* \param _board_pos_x, _board_pos_y USer chosen sizes of the board on the xx and yy axis
+* \param _currentPlays holds the total number of plays to make until lost
+* \param _numColors number of colors chosen by user to appear on the game
+*/
 void PressedUKey(int _board[][MAX_BOARD_POS], int _lastBoard[][MAX_BOARD_POS], int _currentPointsPerColor[MAX_COLORS], int _pointsMadePerColor[MAX_COLORS], int _board_pos_x, int _board_pos_y, int *_currentPlays, int _numColors) {
     *_currentPlays = *_currentPlays + 1;
     for(int i=0; i<_numColors; i++) {
@@ -724,7 +780,6 @@ void ProcessMouseEvent(int _mouse_pos_x, int _mouse_pos_y, int _board_size_px[],
 void RenderPoints(int _board[][MAX_BOARD_POS], int _board_pos_x, int _board_pos_y,
         int _board_size_px[], int _square_size_px, SDL_Renderer *_renderer, int _selectedPosX, int _selectedPosY)
 {
-    srand(time(NULL));
 
     int clr, x_corner, y_corner, circleX, circleY, circleR;
     int i, j;

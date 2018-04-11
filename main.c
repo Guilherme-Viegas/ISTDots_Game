@@ -1,7 +1,8 @@
 /** Made by Guilherme Viegas
 *   Instituto Superior Técnico - MEEC
 *           - ISTDots -
-*   Goal: add points of the same color placed on a board and thus eliminate them
+*   Goal: add points of the same color placed on a board eliminating them
+*   With the possibility of returning back by pressing the 'n' key
 */
 
 #include <SDL2/SDL.h>
@@ -27,14 +28,14 @@
 #define MARGIN 5
 
 // declaration of the functions related to graphical issues
-void InitEverything(int , int , TTF_Font **, SDL_Surface **, SDL_Window ** , SDL_Renderer ** , TTF_Font **);
+void InitEverything(int , int , TTF_Font **, SDL_Surface **, SDL_Window ** , SDL_Renderer ** , TTF_Font **, TTF_Font **);
 void InitSDL();
 void InitFont();
 SDL_Window* CreateWindow(int , int );
 SDL_Renderer* CreateRenderer(int , int , SDL_Window *);
 int RenderText(int, int, const char *, TTF_Font *, SDL_Color *, SDL_Renderer *);
 int RenderLogo(int, int, SDL_Surface *, SDL_Renderer *);
-int RenderTable(int, int, int [], TTF_Font *, SDL_Surface **, SDL_Renderer *);
+int RenderTable(int, int, int [], TTF_Font *, SDL_Surface **, SDL_Renderer *, int, int);
 void ProcessMouseEvent(int , int , int [], int , int *, int * );
 void RenderPoints(int [][MAX_BOARD_POS], int, int, int [], int, SDL_Renderer *, int, int);
 void RenderStats( SDL_Renderer *, TTF_Font *, int [], int , int );
@@ -46,9 +47,12 @@ int ValidatePlay(int [MAX_BOARD_POS*MAX_BOARD_POS][2], int [MAX_BOARD_POS][MAX_B
 void DestroyCircles(int [MAX_BOARD_POS][MAX_BOARD_POS], int [MAX_BOARD_POS][MAX_BOARD_POS], int , int , int , int);
 int CheckSquares(int [MAX_BOARD_POS][MAX_BOARD_POS], int [MAX_BOARD_POS][MAX_BOARD_POS], int [MAX_BOARD_POS*MAX_BOARD_POS][2], int [MAX_COLORS], int, int, int, int);
 void UpdateStats(int [MAX_COLORS], int [MAX_COLORS], int * );
-void EndGame(SDL_Renderer * , TTF_Font *, int );
+void EndGame(SDL_Renderer * , TTF_Font *, TTF_Font *, int );
 int Shuffle(int [MAX_BOARD_POS][MAX_BOARD_POS], int, int );
 void RenderShuffleRect(SDL_Renderer * , TTF_Font *);
+void WriteFile(FILE *, char [], char [], int, int, int []);
+void RenderSelectedSquares(SDL_Renderer *, int, int, int [][2], int, int, int [], int);
+void PressedUKey(int [][MAX_BOARD_POS], int [][MAX_BOARD_POS], int [MAX_COLORS], int [MAX_COLORS], int , int , int *, int );
 
 // definition of some strings: they cannot be changed when the program is executed !
 const char myName[] = "Guilherme Viegas";
@@ -65,9 +69,10 @@ int main( void )
     SDL_Renderer *renderer = NULL;
     TTF_Font *serif = NULL;
     TTF_Font *serifGrande = NULL;
+    TTF_Font *serifSmall = NULL;
     SDL_Surface *imgs[2];
     SDL_Event event;
-    int delay = 50;
+    int delay = 100;
     int quit = 0;
     int width = (TABLE_SIZE + LEFT_BAR_SIZE);
     int height = TABLE_SIZE;
@@ -76,8 +81,8 @@ int main( void )
     int board[MAX_BOARD_POS][MAX_BOARD_POS] = {{0}};
     int pt_x = 0, pt_y = 0;
 
-    //Variaveis do user
-    char tmp[STRING_SIZE] = {0}; //Para guardar os valores numericos do fgets para usar depois o sscanf
+    //User Params
+    char tmp[STRING_SIZE] = {0}; //For the combination of fgets and sscanf to restringe the user to only input numbers
     char username[STRING_SIZE] = {0};
     int numColors = 0;
     int colorPoints[MAX_COLORS] = {0};
@@ -85,21 +90,23 @@ int main( void )
 
     int currentPointsPerColor[MAX_COLORS] = {0};
     int currentPlays = 0;
+    int lastBoard[MAX_BOARD_POS][MAX_BOARD_POS] = {{0}};
 
-    int gameState = 0; //1 if Player won, -1 if Player lost, and 0 if remains in game
+    int gameState = 0; //1 if Player won, -1 if Player lost, and 0 if it remains in game
     int wins = 0;
     int defeats = 0;
-    int gameStats[200] = {0}; //Each positions is a different game, if defeat: value=-1 and if victory: value=currentPlays (Number of plays)
-    int index = 0;
+    int gameStats[200] = {0}; //Each position is a different game, if defeat: value=-1 and if victory: value=currentPlays (Number of plays)
+    int index = 0; //Index of gameStats array
 
-    int isPlaying = 0;
+    int isPlaying = 0; //If user is making a move
     int lastXPos = 0;
     int lastYPos = 0;
     int gamePlay[MAX_BOARD_POS * MAX_BOARD_POS][2] = {{0}};
     int gamePlayIndex=0;
-    int circlesToDestroy[MAX_BOARD_POS][MAX_BOARD_POS] = {{0}}; //Nas coordenadas tem o valor 1 se for um circulo para destruir e tem o valor 0 se nao for
-    int gamePlayColor = -1; //Cor das bolas da jogada feita
-    int pointsMadePerColor[MAX_COLORS] = {0}; //Numero de circulos selecionados, por cor, na jogada
+    int circlesToDestroy[MAX_BOARD_POS][MAX_BOARD_POS] = {{0}}; //1 on the circles coordinates to destroy and 0 on the rest
+    int gamePlayColor = -1;
+    int pointsMadePerColor[MAX_COLORS] = {0}; //Number of circles, by color, on each play
+    int isSquare = 0;
 
     FILE *statistics;
     char filePath[] = "stats.txt";
@@ -114,17 +121,10 @@ int main( void )
     }
 
     // initialize graphics
-    InitEverything(width, height, &serif, imgs, &window, &renderer, &serifGrande);
+    InitEverything(width, height, &serif, imgs, &window, &renderer, &serifGrande, &serifSmall);
 
     //initialize board table array for random colors
     InitRandomBoard(board_pos_x, board_pos_y, board, numColors);
-
-    for(int i=0; i<board_pos_x; i++) {
-        for(int j=0; j<board_pos_y; j++) {
-            printf("\n(%d, %d) -> %d", i, j, board[i][j]);
-        }
-    }
-    printf("\n\n");
 
     while( quit == 0 )
     {
@@ -134,7 +134,7 @@ int main( void )
 
             if( event.type == SDL_QUIT )
             {
-                // quit !
+                WriteFile(statistics, filePath, username, wins, defeats, gameStats);
                 quit = 1;
             }
             else if ( event.type == SDL_KEYDOWN )
@@ -149,7 +149,7 @@ int main( void )
                         }
 
 
-                        //Fazer reset às variaveis de jogo:
+                        //Reset to the game variables
                         currentPlays = maxPlays;
                         for(int i=0; i < MAX_COLORS; i++) {
                             currentPointsPerColor[i] = colorPoints[i];
@@ -170,36 +170,19 @@ int main( void )
                             gamePlay[i][1] = 0;
                         }
                         gamePlayColor = -1;
-                        //isPlaying = 0;
                         gamePlayIndex = 0;
 
                         gameState = 0;
                         InitRandomBoard(board_pos_x, board_pos_y, board, numColors);
                         break;
                     case SDLK_q:
-                        // todo
-                        //Escrever o ficheiro statistics
-                        statistics = fopen(filePath, "w");
-                        if(statistics == NULL) {
-                            printf("Can't open stats file\n");
-                            exit(EXIT_FAILURE);
-                        }
 
-                        fprintf(statistics, "%s\n", username);
-                        fprintf(statistics, "Total number of games: %d\nNumber of Victories: %d\nNumber of Defeats: %d\n", defeats+wins, wins, defeats);
-                        for(int i=0; i<wins+defeats; i++) {
-                            if(gameStats[i] == -1) {
-                                fprintf(statistics, "Game %d: Defeat\n", i+1);
-                            } else {
-                                fprintf(statistics, "Game %d: %d Victory\n", i+1, gameStats[i]);
-                            }
-                        }
-
-                        fclose(statistics);
+                        WriteFile(statistics, filePath, username, wins, defeats, gameStats);
                         quit=1;
                         break;
                     case SDLK_u:
-                        // todo
+                        PressedUKey(board, lastBoard, currentPointsPerColor, pointsMadePerColor, board_pos_x, board_pos_y, &currentPlays, numColors);
+
                     default:
                         break;
                 }
@@ -212,36 +195,51 @@ int main( void )
                 isPlaying = 1;
                 lastXPos = pt_x;
                 lastYPos = pt_y;
-                //Necessario pois o primeiro circulo da jogada nao é contado no mouse movement
+                //The first circle of the play is not counted on mouse movement functions
                 gamePlay[gamePlayIndex][0] = pt_x;
                 gamePlay[gamePlayIndex][1] = pt_y;
                 gamePlayIndex++;
+
+                //Save the current board to the lastBoard array
+                for(int i=0; i < board_pos_x; i++) {
+                    for(int j=0; j < board_pos_y; j++) {
+                        lastBoard[i][j] = board[i][j];
+                    }
+                }
+
+
+                //Reset to the pointsPerCOlor array
+                for(int i=0; i < MAX_COLORS; i++) {
+                    pointsMadePerColor[i] = 0;
+                }
+
+
             }
             else if ( event.type == SDL_MOUSEBUTTONUP )
             {
                 ProcessMouseEvent(event.button.x, event.button.y, board_size_px, square_size_px, &pt_x, &pt_y);
                 //printf("\nButton up: %d %d ", pt_x, pt_y);
-                if(ValidatePlay(gamePlay, board, gamePlayIndex)) { //Se a jogada foi válida: preenche o array circlesToDestroy, mete a cor da jogada na gamePlayColor e faz descer os circulos
+                if(ValidatePlay(gamePlay, board, gamePlayIndex)) {
                     for(int i=0; i < gamePlayIndex; i++) {
                         circlesToDestroy[gamePlay[i][0]][gamePlay[i][1]] = 1;
                     }
 
-                    gamePlayColor = board[gamePlay[0][0]][gamePlay[0][1]]; //A cor atual vai ser igual à cor do primeiro circulo selecionado na jogada
+                    gamePlayColor = board[gamePlay[0][0]][gamePlay[0][1]]; //The general play color is equal to, for example, the first circle of the user play
 
-                    //No caso da jogada ser uma linha que voltou para trás os pontos têm de ser contados como "metade + 1"
+                    //On the case of the gameplay being a line that the user returned back, the points have to be counted has half + 1
                     if(gamePlay[0][0] == gamePlay[gamePlayIndex-1][0] && gamePlay[0][1] == gamePlay[gamePlayIndex-1][1] && gamePlay[1][0] == gamePlay[gamePlayIndex-2][0] && gamePlay[1][1] == gamePlay[gamePlayIndex-2][1]) {
                         pointsMadePerColor[gamePlayColor] = gamePlayIndex/2 +1;
                     } else {
                         pointsMadePerColor[gamePlayColor] = gamePlayIndex;
                     }
-
-                    if(CheckSquares(board, circlesToDestroy, gamePlay, pointsMadePerColor, gamePlayColor, gamePlayIndex, board_pos_x, board_pos_y))
-                        pointsMadePerColor[gamePlayColor]--;     //Sendo um quadradoo primeiro circulo coincide com o ultimo, logo só se conta com 1
-
+                    isSquare = CheckSquares(board, circlesToDestroy, gamePlay, pointsMadePerColor, gamePlayColor, gamePlayIndex, board_pos_x, board_pos_y);
+                    if(isSquare) {
+                        pointsMadePerColor[gamePlayColor]--;     //Being a square the first circle is equal to the last so only counted as one
+                    }
                     DestroyCircles(board, circlesToDestroy, board_pos_x, board_pos_y, gamePlayIndex, numColors);
                 }
 
-                //Atualizacao dos valores das pontuacoes
+                //Score values update
                 if(gameState==0)
                     UpdateStats(pointsMadePerColor, currentPointsPerColor, &currentPlays);
 
@@ -259,11 +257,7 @@ int main( void )
                 }
 
 
-                //Reset às variaveis
-                for(int i=0; i < MAX_COLORS; i++) {
-                    pointsMadePerColor[i] = 0;
-                }
-
+                //Variables reset
                 for(int i = 0; i < MAX_BOARD_POS; i++) {
                     for(int j=0; j < MAX_BOARD_POS; j++) {
                         circlesToDestroy[i][j] = 0;
@@ -280,14 +274,10 @@ int main( void )
             else if ( event.type == SDL_MOUSEMOTION )
             {
                 ProcessMouseEvent(event.button.x, event.button.y, board_size_px, square_size_px, &pt_x, &pt_y);
-                printf("Moving Mouse: %d %d\n", pt_x, pt_y);
+                //printf("Moving Mouse: %d %d\n", pt_x, pt_y);
 
+                //Retrieving the user game-play
                 if(isPlaying && gameState==0) {
-                    //Shuffle(board, board_pos_x, board_pos_y);
-                    //Linha a arrastar
-                    SDL_RenderDrawLine(renderer, event.button.x, event.button.y, event.button.x +5, event.button.y +2);
-                    SDL_RenderPresent(renderer);
-
                     if((lastXPos != pt_x || lastYPos != pt_y) && pt_x != -1 && pt_y != -1) {
                         gamePlay[gamePlayIndex][0] = pt_x;
                         gamePlay[gamePlayIndex][1] = pt_y;
@@ -299,21 +289,24 @@ int main( void )
             }
         }
         // render game table
-        square_size_px = RenderTable( board_pos_x, board_pos_y, board_size_px, serif, imgs, renderer);
+        square_size_px = RenderTable( board_pos_x, board_pos_y, board_size_px, serif, imgs, renderer, isSquare, gamePlayColor);
+        isSquare = 0;
+        //Render with a different color(red) the selected squares
+        RenderSelectedSquares(renderer, 3, 3, gamePlay, board_pos_x, board_pos_y, board_size_px, gamePlayIndex);
         // render board
         RenderPoints(board, board_pos_x, board_pos_y, board_size_px, square_size_px, renderer, pt_x, pt_y);
         //Render points and goals
-        RenderStats(renderer, serif, currentPointsPerColor, numColors, currentPlays);
-        //If is needed to shuffle:
+        RenderStats(renderer, serifGrande, currentPointsPerColor, numColors, currentPlays);
+        //If it is needed to shuffle:
         if(Shuffle(board, board_pos_x, board_pos_y)) {
             RenderShuffleRect(renderer, serifGrande);
             SDL_RenderPresent(renderer);
             SDL_Delay( 1500 );
             InitRandomBoard(board_pos_x, board_pos_y, board, numColors);
         }
-        //If player won or loose:
+        //If player won or lost:
         if(gameState != 0) {
-            EndGame(renderer, serifGrande, gameState);
+            EndGame(renderer, serifGrande, serifSmall, gameState);
         }
         // render in the screen all changes above
         SDL_RenderPresent(renderer);
@@ -349,7 +342,12 @@ void InitRandomBoard(int _boardX, int _boardY, int _boardTable[][MAX_BOARD_POS],
 }
 
 /**GetUserParams To get the initial params before starting the game
-*
+* \param _username The username string array
+* \param _tmp A temporary array to combine fgets and sscanf, for restricting the user to the needed characters
+* \param _colorPoints Array that stores the goals for each color
+* \param _board_pos_x and _board_pos_y The size of the board on the respective axis
+* \param _numColors The maximum number of colors to appear on the game
+* \param _maxPlays Maximum number of plays to make on each game before loosing
 */
 
 void GetUserParams(char _username[STRING_SIZE], char _tmp[STRING_SIZE], int _colorPoints[MAX_COLORS], int *_board_pos_x, int *_board_pos_y, int *_numColors, int *_maxPlays) {
@@ -365,19 +363,19 @@ void GetUserParams(char _username[STRING_SIZE], char _tmp[STRING_SIZE], int _col
     do {
         printf("\nEnter the VERTICAL game-table size(between 5 and 15): ");
         fgets(_tmp, STRING_SIZE, stdin);
-        sscanf(_tmp, " %d", &(* _board_pos_y));
+        sscanf(_tmp, " %d",  _board_pos_y);
     } while(* _board_pos_y<5 || * _board_pos_y >15 );
 
     do {
         printf("\nEnter the HORIZONTAL game-table size(between 5 and 15): ");
         fgets(_tmp, STRING_SIZE, stdin);
-        sscanf(_tmp, " %d", &(*_board_pos_x));
+        sscanf(_tmp, " %d", _board_pos_x);
     } while(*_board_pos_x<5 || *_board_pos_x >15);
 
     do {
         printf("\nEnter the number of colors to appear on the game (1-5): ");
         fgets(_tmp, STRING_SIZE, stdin);
-        sscanf(_tmp, " %d", &(*_numColors));
+        sscanf(_tmp, " %d", _numColors);
     } while(*_numColors<1 || *_numColors >5);
 
     //Escolha do numero de pontos PARA CADA uma das cores
@@ -392,7 +390,7 @@ void GetUserParams(char _username[STRING_SIZE], char _tmp[STRING_SIZE], int _col
     do {
         printf("\nAnd finally...enter the maximum number of plays to obtain victory(1-99): ");
         fgets(_tmp, STRING_SIZE, stdin);
-        sscanf(_tmp, " %d", &(*_maxPlays));
+        sscanf(_tmp, " %d", _maxPlays);
     } while(*_maxPlays<1 || *_maxPlays >99);
 
 }
@@ -478,6 +476,7 @@ int CheckSquares(int _board[MAX_BOARD_POS][MAX_BOARD_POS], int _circlesToDestroy
         return 0;
     }
 
+    //For getting the vertices of the square(or rectangle)
     for(int i = 0; i < _board_pos_x; i++) {
         for(int j=0; j < _board_pos_y; j++) {
             if(_circlesToDestroy[i][j]==1) {
@@ -520,6 +519,11 @@ void UpdateStats(int _pointsPerColor[MAX_COLORS], int _currentPointsPerColor[MAX
     for(int i=0; i < MAX_COLORS; i++) {
         _currentPointsPerColor[i] = _currentPointsPerColor[i] - _pointsPerColor[i];
     }
+
+    for(int i=0; i < MAX_COLORS;i++) {
+        if(_currentPointsPerColor[i]< 0)
+            _currentPointsPerColor[i] = 0;
+    }
 }
 
 /**EndGame: For displaying the boxes and text of VICTORY and DEFEAT
@@ -527,7 +531,7 @@ void UpdateStats(int _pointsPerColor[MAX_COLORS], int _currentPointsPerColor[MAX
 * \param _winOrLoose If the player won or not
 */
 
-void EndGame(SDL_Renderer * _renderer, TTF_Font *_font, int _winOrLoose ) {
+void EndGame(SDL_Renderer * _renderer, TTF_Font *_font, TTF_Font *_smallFont, int _winOrLoose ) {
     SDL_Color blue = {30,144,255};
     SDL_SetRenderDrawColor( _renderer,  250,250,210 , 0.5 );
 
@@ -535,15 +539,17 @@ void EndGame(SDL_Renderer * _renderer, TTF_Font *_font, int _winOrLoose ) {
     SDL_Rect endGame = {200, 200, 500, 250};
     SDL_RenderFillRect(_renderer, &endGame);
     if(_winOrLoose == 1) {
-        RenderText(375, 300, "VICTORY!", _font, &blue, _renderer);
+        RenderText(360, 275, "VICTORY!", _font, &blue, _renderer);
     } else if(_winOrLoose == -1) {
-        RenderText(375, 300, "DEFEAT!", _font, &blue, _renderer);
+        RenderText(360, 275, "DEFEAT!", _font, &blue, _renderer);
     }
+
+    RenderText(375, 350, "Press n key to play again", _smallFont, &blue, _renderer);
 
 }
 
 /**RenderShuffleRect For rendering the box and text if needed to shuffle
-*
+*  When there no more possible moves
 */
 
 void RenderShuffleRect(SDL_Renderer * _renderer, TTF_Font *_font) {
@@ -567,18 +573,91 @@ void RenderShuffleRect(SDL_Renderer * _renderer, TTF_Font *_font) {
 int Shuffle(int _board[MAX_BOARD_POS][MAX_BOARD_POS], int _board_size_x, int _board_size_y) {
     for(int i=0; i < _board_size_x-1; i++) {
         for(int j=0; j < _board_size_y; j++) {
-            if(j != _board_size_y-1) {
+            if(j != _board_size_y-1 && i != _board_size_x-1) {
                 if(_board[i][j] == _board[i][j+1] || _board[i][j] ==_board[i+1][j]) {
                     return 0;
                 }
-            } else {
+            } else if(i != _board_size_x-1){
                 if(_board[i][j] == _board[i+1][j]) {
                     return 0;
                 }
-        }
+            } else {
+                if(_board[i][j] == _board[i][j+1]) {
+                    return 0;
+                }
+            }
     }
     }
     return 1;
+}
+
+/**WriteFile For writing the statistics file when exiting the game
+*\param _statistics The file variable for writing
+*\param _filePath The stats.txt desired filepath
+*\param _username The username the user entered initially
+*\param _wins and _defeats The total number of wins and defeats for all games made for that app execution
+*\param _gameStats Array that stores on each position(index of a game) '-1' if Defeated and 'number of plays made' if Victory
+*/
+void WriteFile(FILE *_statistics, char _filePath[], char _username[], int _wins, int _defeats, int _gameStats[]) {
+    _statistics = fopen(_filePath, "w");
+    if(_statistics == NULL) {
+        printf("Can't open stats file\n");
+        exit(EXIT_FAILURE);
+    }
+
+    fprintf(_statistics, "%s\n", _username);
+    fprintf(_statistics, "Total number of games: %d\nNumber of Victories: %d\nNumber of Defeats: %d\n", _defeats+_wins, _wins, _defeats);
+    for(int i=0; i<_wins+_defeats; i++) {
+        if(_gameStats[i] == -1) {
+            fprintf(_statistics, "Game %d: Defeat\n", i+1);
+        } else {
+            fprintf(_statistics, "Game %d: %d Victory\n", i+1, _gameStats[i]);
+        }
+    }
+
+    fclose(_statistics);
+}
+
+/**RenderSelectedSquares
+*
+*/
+
+void RenderSelectedSquares(SDL_Renderer * _renderer, int _pt_x, int _pt_y, int _gamePlay[][2], int _board_pos_x, int _board_pos_y, int _board_size_px[], int _numberOfCircles) {
+    SDL_Color red = { 247, 56, 56 };
+    SDL_Rect board_square;
+    int board_size, square_size_px, max_pos;
+
+    //Computes the size adjustements for the selected squares
+    max_pos = MAX(_board_pos_x, _board_pos_y);
+    board_size = (int)(BOARD_SIZE_PER*TABLE_SIZE);
+    square_size_px = (board_size - (max_pos+1)*SQUARE_SEPARATOR) / max_pos;
+
+    SDL_SetRenderDrawColor(_renderer, red.r, red.g, red.b, red.a );
+
+    for(int i=0; i<_numberOfCircles; i++) {
+        if(_gamePlay[i][0] !=-1) {
+            board_square.x = ((TABLE_SIZE - _board_size_px[0]) >> 1) + (_gamePlay[i][0]+1)*SQUARE_SEPARATOR + _gamePlay[i][0]*square_size_px;
+            board_square.y = (TABLE_SIZE - _board_size_px[1] - 15) + (_gamePlay[i][1]+1)*SQUARE_SEPARATOR + _gamePlay[i][1]*square_size_px;
+            board_square.w = square_size_px;
+            board_square.h = square_size_px;
+            SDL_RenderFillRect(_renderer, &board_square);
+        }
+    }
+}
+
+
+void PressedUKey(int _board[][MAX_BOARD_POS], int _lastBoard[][MAX_BOARD_POS], int _currentPointsPerColor[MAX_COLORS], int _pointsMadePerColor[MAX_COLORS], int _board_pos_x, int _board_pos_y, int *_currentPlays, int _numColors) {
+    *_currentPlays = *_currentPlays + 1;
+    for(int i=0; i<_numColors; i++) {
+        _currentPointsPerColor[i] = _currentPointsPerColor[i] + _pointsMadePerColor[i];
+    }
+
+
+    for(int i=0; i < _board_pos_x; i++) {
+        for(int j=0; j < _board_pos_y; j++) {
+            _board[i][j] = _lastBoard[i][j];
+        }
+    }
 }
 
 //----------------------
@@ -735,24 +814,24 @@ void RenderStats( SDL_Renderer *_renderer, TTF_Font *_font, int _goals[], int _n
 
 
     //O quadrado do numero de jogadas para perder
-    SDL_Rect jogadas = {50, 50, 80, 50};
+    SDL_Rect jogadas = {50, 50, 80, 60};
     SDL_RenderFillRect(_renderer, &jogadas);
-    RenderText(65, 65, numberPlays, _font, &black, _renderer);
+    RenderText(65, 45, numberPlays, _font, &black, _renderer);
 
 
 
     //Os quadrados da pontuacao por cor
     for(int i = 0; i < _ncolors; i++) {
         SDL_SetRenderDrawColor( _renderer,  205, 193, 181 , 255 );
-        SDL_Rect rect = {rect_x_pos, 50, 100, 50};
+        SDL_Rect rect = {rect_x_pos, 50, 120, 60};
         SDL_RenderFillRect(_renderer, &rect);
         char colorPoints[5];
         sprintf(colorPoints, "%d", _goals[i]);
         filledCircleRGBA(_renderer, rect_x_pos + 25, 75, 15, colors[0][i], colors[1][i], colors[2][i]);
-        RenderText(rect_x_pos + 50, 65, colorPoints, _font, &black, _renderer);
+        RenderText(rect_x_pos + 50, 45, colorPoints, _font, &black, _renderer);
 
 
-        rect_x_pos += 120;Ŀ
+        rect_x_pos += 135;
 }
 }
 
@@ -769,7 +848,7 @@ void RenderStats( SDL_Renderer *_renderer, TTF_Font *_font, int _goals[], int _n
  * \param _renderer renderer to handle all rendering in a window
  */
 int RenderTable( int _board_pos_x, int _board_pos_y, int _board_size_px[],
-        TTF_Font *_font, SDL_Surface *_img[], SDL_Renderer* _renderer )
+        TTF_Font *_font, SDL_Surface *_img[], SDL_Renderer* _renderer, int _isSquare, int _gamePlayColor )
 {
     SDL_Color black = { 0, 0, 0 }; // black
     SDL_Color light = { 205, 193, 181 };
@@ -822,8 +901,11 @@ int RenderTable( int _board_pos_x, int _board_pos_y, int _board_size_px[],
     SDL_RenderFillRect(_renderer, &board);
 
     // renders the squares where the numbers will appear
-    SDL_SetRenderDrawColor(_renderer, light.r, light.g, light.b, light.a );
-
+    if(_isSquare ) {
+        SDL_SetRenderDrawColor(_renderer, colors[0][_gamePlayColor], colors[1][_gamePlayColor], colors[2][_gamePlayColor], 255 );
+    }else {
+        SDL_SetRenderDrawColor(_renderer, light.r, light.g, light.b, light.a );
+    }
     // iterate over all squares
     for ( i = 0; i < _board_pos_x; i++ )
     {
@@ -916,7 +998,7 @@ int RenderText(int x, int y, const char *text, TTF_Font *_font, SDL_Color *_colo
  * \param _renderer renderer to handle all rendering in a window
  * \param _font font that will be used to render the big text of Victory or Defeat
  */
-void InitEverything(int width, int height, TTF_Font **_font, SDL_Surface *_img[], SDL_Window** _window, SDL_Renderer** _renderer, TTF_Font **_fontBig)
+void InitEverything(int width, int height, TTF_Font **_font, SDL_Surface *_img[], SDL_Window** _window, SDL_Renderer** _renderer, TTF_Font **_fontBig, TTF_Font **_fontSmall)
 {
     InitSDL();
     InitFont();
@@ -940,7 +1022,8 @@ void InitEverything(int width, int height, TTF_Font **_font, SDL_Surface *_img[]
     }
     // this opens (loads) a font file and sets a size
     *_font = TTF_OpenFont("FreeSerif.ttf", 16);
-    *_fontBig = TTF_OpenFont("FreeSerif.ttf", 46);
+    *_fontBig = TTF_OpenFont("OpenSans.ttf", 46);
+    *_fontSmall = TTF_OpenFont("FreeSerif.ttf", 20);
     if(!*_font)
     {
         printf("TTF_OpenFont: %s\n", TTF_GetError());
